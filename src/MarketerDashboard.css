@@ -1,0 +1,422 @@
+
+.marketer-page {
+  min-height: 100vh;
+  padding: 35px;
+  background: #f5f7fc;
+  color: #263653;
+  font-family: 'Poppins', sans-serif;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  margin: 0 auto 30px;
+  max-width: 1400px;
+}
+
+.dashboard-brand {
+  color: #3f51b5;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  font-size: 12px;
+}
+
+.dashboard-header h1 {
+  margin: 7px 0;
+  font-size: 28px;
+}
+
+.dashboard-header p,
+.section-heading p {
+  color: #77849a;
+  font-size: 13px;
+  margin: 0;
+}
+
+.refresh-button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 19px;
+  border: 0;
+  border-radius: 9px;
+  color: white;
+  background: #3f51b5;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.refresh-button:disabled {
+  opacity: .65;
+  cursor: wait;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.dashboard-error {
+  max-width: 1400px;
+  margin: 0 auto 20px;
+  padding: 14px;
+  border-radius: 9px;
+  background: #fff0f0;
+  color: #b42332;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.stats-grid {
+  max-width: 1400px;
+  margin: 0 auto 22px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 17px;
+}
+
+.stat-card {
+  background: white;
+  padding: 21px;
+  border: 1px solid #e9edf5;
+  border-radius: 13px;
+  box-shadow: 0 3px 12px rgba(30, 50, 90, .03);
+}
+
+.stat-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #687994;
+  font-size: 12px;
+}
+
+.stat-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: #eef1ff;
+  color: #3f51b5;
+}
+
+.stat-card > strong {
+  display: block;
+  margin: 13px 0 4px;
+  font-size: 30px;
+  color: #263653;
+}
+
+.stat-card > small {
+  color: #929db0;
+  font-size: 11px;
+}
+
+.enrollment-highlight {
+  max-width: 1400px;
+  margin: 0 auto 25px;
+  padding: 19px 22px;
+  background: #edfaf3;
+  border: 1px solid #d6f0e1;
+  border-radius: 13px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.enrollment-icon {
+  width: 45px;
+  height: 45px;
+  border-radius: 12px;
+  background: #d6f4e3;
+  color: #168b52;
+  display: grid;
+  place-items: center;
+}
+
+.enrollment-highlight strong {
+  color: #176d43;
+  font-size: 15px;
+}
+
+.enrollment-highlight p {
+  margin: 4px 0 0;
+  color: #668876;
+  font-size: 12px;
+}
+
+.enrollment-trend {
+  margin-left: auto;
+  color: #168b52;
+}
+
+.bookings-section {
+  max-width: 1400px;
+  margin: 0 auto;
+  background: white;
+  border: 1px solid #e9edf5;
+  border-radius: 14px;
+  padding: 24px;
+  box-shadow: 0 3px 12px rgba(30, 50, 90, .03);
+}
+
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 21px;
+}
+
+.section-heading h2 {
+  margin: 0 0 5px;
+  font-size: 19px;
+}
+
+.record-count {
+  color: #3f51b5;
+  background: #eef1ff;
+  padding: 7px 12px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.booking-controls {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 19px;
+}
+
+.search-box,
+.filter-box {
+  min-height: 43px;
+  border: 1px solid #e2e7f0;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  color: #8290a8;
+}
+
+.search-box {
+  flex: 1;
+}
+
+.search-box input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  color: #263653;
+  font: inherit;
+  font-size: 12px;
+}
+
+.filter-box select {
+  border: 0;
+  outline: 0;
+  background: white;
+  color: #52627b;
+  font: inherit;
+  font-size: 12px;
+}
+
+.table-wrapper {
+  overflow-x: auto;
+  width: 100%;
+}
+
+.bookings-table {
+  width: 100%;
+  min-width: 950px;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.bookings-table th {
+  padding: 13px 12px;
+  background: #f7f8fc;
+  color: #71809a;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.bookings-table td {
+  padding: 15px 12px;
+  border-bottom: 1px solid #edf0f5;
+  color: #52627b;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.bookings-table tbody tr:hover {
+  background: #fafbff;
+}
+
+.bookings-table td strong {
+  display: block;
+  color: #263653;
+  font-size: 12px;
+}
+
+.bookings-table td small {
+  display: block;
+  margin-top: 4px;
+  color: #929db0;
+  font-size: 10px;
+}
+
+.parent-cell {
+  color: #263653 !important;
+  font-weight: 600;
+}
+
+.phone-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #3f51b5;
+  text-decoration: none;
+}
+
+.phone-link:hover {
+  text-decoration: underline;
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 600;
+  background: #f0f2f6;
+  color: #65728a;
+}
+
+.status-pill.new {
+  background: #edf2ff;
+  color: #4056b5;
+}
+
+.status-pill.contacted,
+.status-pill.interested,
+.status-pill.follow-up {
+  background: #fff5df;
+  color: #a66b09;
+}
+
+.status-pill.trial-booked {
+  background: #eaf5ff;
+  color: #2473b7;
+}
+
+.status-pill.trial-attended {
+  background: #e9f7f0;
+  color: #168452;
+}
+
+.status-pill.converted {
+  background: #dff5e8;
+  color: #137744;
+}
+
+.status-pill.lost {
+  background: #fff0f0;
+  color: #c13e4c;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px !important;
+  color: #929db0 !important;
+}
+
+.table-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 16px;
+  color: #929db0;
+  font-size: 10px;
+}
+
+.dashboard-footer {
+  max-width: 1400px;
+  margin: 25px auto 0;
+  text-align: center;
+  color: #929db0;
+  font-size: 11px;
+}
+
+@media (max-width: 800px) {
+  .marketer-page {
+    padding: 22px 15px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-header h1 {
+    font-size: 23px;
+  }
+}
+
+@media (max-width: 520px) {
+  .dashboard-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .stat-card {
+    padding: 14px;
+  }
+
+  .stat-card-top {
+    font-size: 10px;
+  }
+
+  .stat-card > strong {
+    font-size: 25px;
+  }
+
+  .stat-card > small {
+    font-size: 9px;
+  }
+
+  .booking-controls {
+    flex-direction: column;
+  }
+
+  .filter-box {
+    min-height: 43px;
+  }
+
+  .bookings-section {
+    padding: 15px;
+  }
+
+  .section-heading h2 {
+    font-size: 17px;
+  }
+
+  .table-footer {
+    flex-direction: column;
+  }
+}
