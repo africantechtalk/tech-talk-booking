@@ -46,7 +46,7 @@ button {
 
 .booking-page {
   min-height: 100vh;
-  padding: 40px 18px;
+  padding: 12px 18px;
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -55,8 +55,7 @@ button {
 .booking-container {
   width: 100%;
   max-width: 780px;
-  min-height: 100%;
-  padding: 36px 48px 30px;
+  padding: 18px 38px 20px;
   background: #fff;
   border: 1px solid #edf0f6;
   border-radius: 20px;
@@ -69,8 +68,8 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 13px;
-  margin-bottom: 42px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .brand-icon {
@@ -80,7 +79,7 @@ button {
 
 .brand h1 {
   margin: 0;
-  font-size: 25px;
+  font-size: 23px;
   font-weight: 700;
   letter-spacing: -0.7px;
   color: #263653;
@@ -89,7 +88,7 @@ button {
 .brand p {
   margin: 2px 0 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: 0.5px;
 }
 
@@ -97,7 +96,7 @@ button {
 
 .progress {
   max-width: 430px;
-  margin: 0 auto 48px;
+  margin: 0 auto 16px;
   display: flex;
   align-items: center;
 }
@@ -106,9 +105,9 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 9px;
+  gap: 5px;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   color: #929db0;
 }
@@ -123,14 +122,14 @@ button {
 }
 
 .progress-circle {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: #e7ebf3;
   color: #77849a;
   display: grid;
   place-items: center;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -144,7 +143,7 @@ button {
   height: 2px;
   background: #e5e9f1;
   flex: 1;
-  margin: -25px 0 0;
+  margin: -20px 0 0;
   min-width: 45px;
 }
 
@@ -163,13 +162,13 @@ button {
 
 .intro {
   text-align: center;
-  margin-bottom: 34px;
+  margin-bottom: 16px;
 }
 
 .intro h2 {
-  font-size: clamp(25px, 4vw, 34px);
-  line-height: 1.35;
-  margin: 0 0 13px;
+  font-size: clamp(23px, 3.5vw, 30px);
+  line-height: 1.25;
+  margin: 0 0 7px;
   font-weight: 700;
   letter-spacing: -1px;
   color: #263653;
@@ -181,10 +180,10 @@ button {
 }
 
 .intro p {
-  font-size: 15px;
-  line-height: 1.8;
+  font-size: 13px;
+  line-height: 1.55;
   color: #687994;
-  margin: 0;
+  margin: 0 0 5px;
 }
 
 /* GRADE SELECTION */
@@ -192,14 +191,14 @@ button {
 .grade-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 17px;
+  gap: 12px;
 }
 
 .grade-card {
   border: 1px solid var(--border);
-  border-radius: 15px;
-  padding: 23px;
-  min-height: 205px;
+  border-radius: 13px;
+  padding: 13px 17px;
+  min-height: 145px;
   text-align: left;
   cursor: pointer;
   position: relative;
@@ -213,9 +212,9 @@ button {
 }
 
 .grade-card:hover {
-  transform: translateY(-3px);
+  transform: translateY(-2px);
   border-color: var(--primary);
-  box-shadow: 0 10px 25px rgba(45, 68, 140, 0.09);
+  box-shadow: 0 8px 20px rgba(45, 68, 140, 0.09);
 }
 
 .grade-card:focus-visible {
@@ -240,48 +239,49 @@ button {
 }
 
 .grade-emoji {
-  font-size: 37px;
-  margin-bottom: 14px;
+  font-size: 29px;
+  margin-bottom: 5px;
 }
 
 .grade-title {
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 700;
   color: #263653;
-  margin-bottom: 9px;
+  margin-bottom: 5px;
 }
 
 .grade-arrow {
   position: absolute;
-  right: 18px;
+  right: 12px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--primary);
 }
 
 .grade-description {
-  font-size: 12px;
-  line-height: 1.8;
+  font-size: 10px;
+  line-height: 1.55;
   color: #71809a;
   max-width: 230px;
-  padding-right: 12px;
+  padding-right: 15px;
 }
 
 /* GRADE HELP */
 
 .grade-help {
   text-align: center;
-  margin-top: 27px;
-  padding: 22px;
+  margin-top: 12px;
+  padding: 10px 16px;
   background: #f7f8fd;
   border: 1px solid #edf0f8;
-  border-radius: 14px;
+  border-radius: 12px;
 }
 
 .grade-help p {
   color: #687994;
-  font-size: 13px;
-  line-height: 1.7;
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 0 0 5px;
 }
 
 .help-toggle,
@@ -289,11 +289,11 @@ button {
   background: var(--primary);
   color: white;
   border: none;
-  padding: 12px 22px;
-  border-radius: 9px;
+  padding: 8px 18px;
+  border-radius: 8px;
   cursor: pointer;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 11px;
   transition: background 0.2s ease;
 }
 
@@ -304,7 +304,7 @@ button {
 
 .help-panel {
   max-width: 350px;
-  margin: 20px auto 0;
+  margin: 15px auto 0;
   text-align: left;
 }
 
@@ -364,9 +364,9 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  margin-top: 16px;
+  margin-top: 8px;
   color: #168c59;
-  font-size: 12px;
+  font-size: 11px;
   text-decoration: none;
 }
 
@@ -620,8 +620,8 @@ button {
   background: #f7f8fc;
   border: 1px solid #edf0f6;
   border-radius: 13px;
-  margin-top: 36px;
-  padding: 22px 10px;
+  margin-top: 14px;
+  padding: 10px 8px;
   gap: 8px;
 }
 
@@ -629,27 +629,27 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 9px;
+  gap: 5px;
   text-align: center;
   color: var(--primary);
 }
 
 .trust-features svg {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
 }
 
 .trust-features span {
-  font-size: 10px;
-  line-height: 1.6;
+  font-size: 9px;
+  line-height: 1.45;
   color: #61718c;
 }
 
 footer {
   text-align: center;
-  font-size: 10px;
+  font-size: 9px;
   color: #929db0;
-  margin-top: 32px;
+  margin-top: 10px;
 }
 
 footer span {
@@ -689,84 +689,111 @@ footer span {
   margin-top: 25px;
 }
 
-/* TABLET AND MOBILE */
+/* TABLET */
 
-@media (max-width: 600px) {
-  .booking-page {
-    padding: 12px;
-  }
-
+@media (min-width: 601px) and (max-width: 900px) {
   .booking-container {
-    padding: 26px 18px;
-    border-radius: 15px;
-  }
-
-  .brand {
-    margin-bottom: 34px;
-  }
-
-  .brand h1 {
-    font-size: 22px;
-  }
-
-  .progress {
-    margin-bottom: 38px;
-  }
-
-  .progress-step {
-    font-size: 11px;
-  }
-
-  .intro {
-    margin-bottom: 27px;
-  }
-
-  .intro h2 {
-    font-size: 25px;
-  }
-
-  .intro p {
-    font-size: 13px;
-  }
-
-  .grade-grid {
-    gap: 12px;
+    max-width: 760px;
+    padding: 18px 28px;
   }
 
   .grade-card {
-    padding: 17px 13px;
-    min-height: 190px;
+    min-height: 140px;
+  }
+}
+
+/* MOBILE */
+
+@media (max-width: 600px) {
+  .booking-page {
+    padding: 8px;
+  }
+
+  .booking-container {
+    padding: 15px 13px;
+    border-radius: 13px;
+  }
+
+  .brand {
+    margin-bottom: 10px;
+  }
+
+  .brand h1 {
+    font-size: 21px;
+  }
+
+  .progress {
+    margin-bottom: 14px;
+  }
+
+  .progress-step {
+    font-size: 10px;
+  }
+
+  .intro {
+    margin-bottom: 13px;
+  }
+
+  .intro h2 {
+    font-size: 23px;
+  }
+
+  .intro p {
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  .grade-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+  }
+
+  .grade-card {
+    padding: 11px 10px;
+    min-height: 137px;
   }
 
   .grade-title {
-    font-size: 14px;
+    font-size: 12px;
   }
 
   .grade-description {
-    font-size: 10px;
-    line-height: 1.7;
+    font-size: 9px;
+    line-height: 1.5;
+    padding-right: 8px;
   }
 
   .grade-emoji {
-    font-size: 32px;
+    font-size: 26px;
+    margin-bottom: 4px;
   }
 
   .grade-arrow {
-    right: 9px;
-    width: 17px;
+    right: 5px;
+    width: 15px;
+  }
+
+  .grade-help {
+    margin-top: 10px;
+    padding: 9px;
   }
 
   .trust-features {
-    padding: 18px 5px;
+    padding: 10px 5px;
     gap: 5px;
+    margin-top: 12px;
   }
 
   .trust-features span {
-    font-size: 9px;
+    font-size: 8px;
   }
 
   .trust-features svg {
-    width: 21px;
+    width: 19px;
+  }
+
+  footer {
+    margin-top: 9px;
   }
 
   .details-content .intro h2 {
@@ -782,18 +809,33 @@ footer span {
   }
 }
 
+/* VERY SMALL SCREENS */
+
 @media (max-width: 360px) {
+  .booking-container {
+    padding: 13px 10px;
+  }
+
   .grade-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .grade-card {
-    min-height: 170px;
+    min-height: 132px;
+    padding: 9px 8px;
+  }
+
+  .grade-title {
+    font-size: 11px;
+  }
+
+  .grade-description {
+    font-size: 8px;
   }
 
   .trust-features {
     grid-template-columns: repeat(2, 1fr);
-    row-gap: 18px;
+    row-gap: 12px;
   }
 }
 
