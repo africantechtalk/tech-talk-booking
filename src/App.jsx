@@ -1,7 +1,6 @@
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  Code2,
   User,
   Phone,
   CalendarDays,
@@ -28,7 +27,7 @@ const grades = [
   },
   {
     id: "Grades 4 - 6",
-    description: "Build real coding skills and create fun projects like games and apps.",
+    description: "Build coding skills through exciting games, apps and creative projects.",
     emoji: "👧",
     color: "blue",
   },
@@ -40,27 +39,23 @@ const grades = [
   },
   {
     id: "Grades 10 - 12",
-    description: "Work on real-world projects, prepare for future careers and build a portfolio.",
+    description: "Create real-world projects and build skills for future careers.",
     emoji: "👨",
     color: "orange",
   },
 ];
 
+// Each session is 60 minutes, followed by a 30-minute break.
 const classTimes = [
   "7:00 AM",
-  "8:00 AM",
-  "9:00 AM",
+  "8:30 AM",
   "10:00 AM",
-  "11:00 AM",
-  "12:00 PM",
+  "11:30 AM",
   "1:00 PM",
-  "2:00 PM",
-  "3:00 PM",
+  "2:30 PM",
   "4:00 PM",
-  "5:00 PM",
-  "6:00 PM",
+  "5:30 PM",
   "7:00 PM",
-  "8:00 PM",
 ];
 
 const initialForm = {
@@ -70,6 +65,12 @@ const initialForm = {
   classDate: "",
   classTime: "",
 };
+
+const SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL;
+const WHATSAPP_NUMBER = "254118755558";
+const MAX_BOOKINGS_PER_SLOT = 3;
+
+let jsonpCounter = 0;
 
 const getRecommendedGrade = (age) => {
   const childAge = Number(age);
@@ -98,7 +99,64 @@ const formatClassDate = (date) => {
   });
 };
 
-const SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL;
+// Retrieve availability without exposing booking details.
+const getAvailability = (date) => {
+  return new Promise((resolve, reject) => {
+    if (!SCRIPT_URL) {
+      reject(new Error("Booking service is not configured."));
+      return;
+    }
+
+    const callbackName = `bookingAvailabilityCallback${++jsonpCounter}`;
+    const script = document.createElement("script");
+    let finished = false;
+
+    const cleanup = () => {
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+
+      delete window[callbackName];
+    };
+
+    const timeout = window.setTimeout(() => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      reject(new Error("Availability request timed out."));
+    }, 12000);
+
+    window[callbackName] = (result) => {
+      if (finished) return;
+
+      finished = true;
+      window.clearTimeout(timeout);
+      cleanup();
+
+      if (!result || result.success !== true) {
+        reject(new Error(result?.error || "Could not load available times."));
+        return;
+      }
+
+      resolve(result);
+    };
+
+    script.onerror = () => {
+      if (finished) return;
+
+      finished = true;
+      window.clearTimeout(timeout);
+      cleanup();
+      reject(new Error("Could not load available times."));
+    };
+
+    script.src =
+      `${SCRIPT_URL}?view=availability&date=${encodeURIComponent(date)}` +
+      `&callback=${callbackName}`;
+
+    document.body.appendChild(script);
+  });
+};
 
 function App() {
   const [step, setStep] = useState(1);
@@ -111,11 +169,23 @@ function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [helpAge, setHelpAge] = useState("");
 
+  const [bookingCounts, setBookingCounts] = useState({});
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState("");
+
   const updateForm = (e) => {
+    const { name, value } = e.target;
+
     setForm((previous) => ({
       ...previous,
-      [e.target.name]: e.target.value,
+      [name]: value,
+      ...(name === "classDate" ? { classTime: "" } : {}),
     }));
+
+    if (name === "classDate") {
+      setBookingCounts({});
+      setAvailabilityError("");
+    }
   };
 
   const chooseGrade = (grade) => {
@@ -127,6 +197,51 @@ function App() {
   const recommendedGrade = helpAge
     ? getRecommendedGrade(helpAge)
     : "";
+
+  // Load booking counts whenever the parent selects a class date.
+  useEffect(() => {
+    if (step !== 2 || !form.classDate) return;
+
+    let active = true;
+
+    const loadAvailability = async () => {
+      setAvailabilityLoading(true);
+      setAvailabilityError("");
+      setBookingCounts({});
+
+      try {
+        const result = await getAvailability(form.classDate);
+
+        if (!active) return;
+
+        setBookingCounts(result.counts || {});
+      } catch (err) {
+        if (!active) return;
+
+        setAvailabilityError(
+          "We couldn't load available times. Please try again."
+        );
+      } finally {
+        if (active) {
+          setAvailabilityLoading(false);
+        }
+      }
+    };
+
+    loadAvailability();
+
+    return () => {
+      active = false;
+    };
+  }, [step, form.classDate]);
+
+  const availableTimes = classTimes.filter((time) => {
+    const count = Number(
+      bookingCounts[`${form.classDate}|${time}`] || 0
+    );
+
+    return count < MAX_BOOKINGS_PER_SLOT;
+  });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -142,6 +257,27 @@ function App() {
     if (!selectedGrade) {
       setError("Please select your child's grade.");
       setStep(1);
+      return;
+    }
+
+    if (!form.classDate || !form.classTime) {
+      setError("Please select a class date and available time.");
+      return;
+    }
+
+    const selectedSlotCount = Number(
+      bookingCounts[`${form.classDate}|${form.classTime}`] || 0
+    );
+
+    if (selectedSlotCount >= MAX_BOOKINGS_PER_SLOT) {
+      setForm((previous) => ({
+        ...previous,
+        classTime: "",
+      }));
+
+      setError(
+        "Sorry, this time slot has just filled up. Please select another time."
+      );
       return;
     }
 
@@ -166,8 +302,8 @@ function App() {
         body: JSON.stringify(payload),
       });
 
-      // A no-cors response is opaque; the browser cannot verify
-      // whether Google Apps Script saved the booking.
+      // A no-cors response is opaque. It cannot confirm that Apps Script
+      // accepted the booking or rejected it because the slot filled up.
       if (response.type === "opaque") {
         setSubmitted(true);
       } else if (response.ok) {
@@ -183,6 +319,7 @@ function App() {
       }
     } catch (err) {
       setError(
+        err.message ||
         "We couldn't confirm your submission. Please try again or contact us on WhatsApp."
       );
     } finally {
@@ -191,13 +328,13 @@ function App() {
   };
 
   const whatsappLink =
-    "https://wa.me/254704494504?text=" +
+    `https://wa.me/${WHATSAPP_NUMBER}?text=` +
     encodeURIComponent(
       "Hi Tech Talk Hub, I would like to book a free trial coding class."
     );
 
   const confirmationWhatsappLink =
-    "https://wa.me/254704494504?text=" +
+    `https://wa.me/${WHATSAPP_NUMBER}?text=` +
     encodeURIComponent(
       `Hi Tech Talk Hub, I have submitted a free trial booking.\n\nParent: ${form.parentName}\nChild: ${form.studentName}\nGrade: ${selectedGrade}\nPreferred Date: ${formatClassDate(form.classDate)}\nPreferred Time: ${form.classTime}`
     );
@@ -207,29 +344,28 @@ function App() {
       <div className="booking-container">
 
         {/* BRAND */}
-        <header
-          className="brand"
-          style={{ marginBottom: "12px", gap: "10px" }}
-        >
-          <div className="brand-icon">
-            <Code2 size={40} strokeWidth={3} />
-          </div>
+        <header className="brand">
+          <img
+            src="/logo.png"
+            alt="Tech Talk Hub logo"
+            className="brand-logo"
+          />
 
-          <div>
+          <div className="brand-text">
             <h1>Tech Talk Hub</h1>
             <p>Code · Create · Build · Grow</p>
           </div>
         </header>
 
         {/* PROGRESS */}
-        <div className="progress" style={{ marginBottom: "16px" }}>
+        <div className="progress">
           <div
             className={`progress-step ${
               step === 1 ? "active" : "completed"
             }`}
           >
             <span className="progress-circle">
-              {step === 1 ? "1" : <Check size={19} />}
+              {step === 1 ? "1" : <Check size={17} />}
             </span>
             <span>Choose Grade</span>
           </div>
@@ -251,24 +387,18 @@ function App() {
         {!submitted ? (
           <>
             {step === 1 ? (
-              /* STEP 1: GRADE SELECTION */
               <section className="step-content">
-                <div
-                  className="intro"
-                  style={{ marginBottom: "16px" }}
-                >
-                  <h2 style={{ marginBottom: "8px" }}>
-                    Give Your Child a<br />
-                    Confident Start in <span>Coding</span>
+                <div className="intro">
+                  <h2>
+                    Give Your Child a Confident Start in{" "}
+                    <span>Coding</span>
                   </h2>
 
-                  <p style={{ marginBottom: "6px" }}>
-                    Choose your child's grade level to get started
-                    <br className="desktop-break" />
-                    with a free trial class.
+                  <p>
+                    Choose your child's grade level to get started with a free trial class.
                   </p>
 
-                  <p style={{ marginBottom: "0" }}>
+                  <p className="live-class-note">
                     <strong>
                       Free trials are live online sessions with a real instructor.
                     </strong>{" "}
@@ -276,54 +406,45 @@ function App() {
                   </p>
                 </div>
 
-                {/* COMPACT GRADE CARDS */}
-                <div
-                  className="grade-grid"
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-                    gap: "12px",
-                    marginBottom: "14px",
-                  }}
-                >
+                {/* GRADE CARDS */}
+                <div className="grade-grid">
                   {grades.map((grade) => (
                     <button
                       type="button"
                       key={grade.id}
                       className={`grade-card ${grade.color}`}
                       onClick={() => chooseGrade(grade.id)}
-                      style={{
-                        minHeight: "145px",
-                        padding: "14px",
-                        gap: "6px",
-                      }}
                     >
-                      <span className="grade-emoji">
-                        {grade.emoji}
+                      <span className="grade-card-top">
+                        <span className="grade-emoji">
+                          {grade.emoji}
+                        </span>
+
+                        <ChevronRight
+                          className="grade-arrow"
+                          size={21}
+                        />
                       </span>
 
                       <span className="grade-title">
                         {grade.id}
                       </span>
 
-                      <ChevronRight
-                        className="grade-arrow"
-                        size={20}
-                      />
-
                       <span className="grade-description">
                         {grade.description}
+                      </span>
+
+                      <span className="grade-select">
+                        Select level
+                        <ArrowRight size={14} />
                       </span>
                     </button>
                   ))}
                 </div>
 
                 {/* HELP ME CHOOSE */}
-                <div
-                  className="grade-help"
-                  style={{ marginTop: "10px" }}
-                >
-                  <p style={{ marginBottom: "5px" }}>
+                <div className="grade-help">
+                  <p>
                     Not sure which level is right for your child?
                   </p>
 
@@ -375,9 +496,7 @@ function App() {
                           <button
                             type="button"
                             className="recommendation-button"
-                            onClick={() =>
-                              chooseGrade(recommendedGrade)
-                            }
+                            onClick={() => chooseGrade(recommendedGrade)}
                           >
                             Continue with this level
                             <ArrowRight size={17} />
@@ -399,18 +518,16 @@ function App() {
                 </div>
               </section>
             ) : (
-              /* STEP 2: BOOKING DETAILS */
               <section className="step-content details-content">
                 <div className="intro">
                   <h2>Great! Let's Get Started</h2>
 
                   <p>
                     Fill in the form below to book your child's free trial class
-                    <br className="desktop-break" />
                     for <span>{selectedGrade}</span>.
                   </p>
 
-                  <p>
+                  <p className="live-class-note">
                     <strong>
                       This is a live online class with a Tech Talk Hub instructor.
                     </strong>{" "}
@@ -423,7 +540,7 @@ function App() {
                   onSubmit={handleSubmit}
                 >
                   <div className="selected-grade">
-                    <GraduationCap size={43} />
+                    <GraduationCap size={40} />
 
                     <div>
                       <small>Selected Grade</small>
@@ -521,16 +638,47 @@ function App() {
                         value={form.classTime}
                         onChange={updateForm}
                         required
+                        disabled={
+                          !form.classDate ||
+                          availabilityLoading ||
+                          availableTimes.length === 0
+                        }
                       >
-                        <option value="">Select a time</option>
+                        <option value="">
+                          {!form.classDate
+                            ? "Select a date first"
+                            : availabilityLoading
+                            ? "Checking available times..."
+                            : availableTimes.length === 0
+                            ? "No available times"
+                            : "Select an available time"}
+                        </option>
 
-                        {classTimes.map((time) => (
-                          <option key={time} value={time}>
-                            {time}
-                          </option>
-                        ))}
+                        {availableTimes.map((time) => {
+                          const count = Number(
+                            bookingCounts[`${form.classDate}|${time}`] || 0
+                          );
+
+                          return (
+                            <option key={time} value={time}>
+                              {time} ({MAX_BOOKINGS_PER_SLOT - count} spaces left)
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
+
+                    {form.classDate && (
+                      <p className="availability-note">
+                        {availabilityLoading
+                          ? "Checking the latest availability..."
+                          : availabilityError
+                          ? availabilityError
+                          : availableTimes.length === 0
+                          ? "All class times are currently fully booked for this date. Please choose another date."
+                          : "Each class is 1 hour long, followed by a 30-minute tutor break. Maximum 3 bookings per time slot."}
+                      </p>
+                    )}
                   </div>
 
                   {error && (
@@ -542,7 +690,13 @@ function App() {
                   <button
                     type="submit"
                     className="submit-button"
-                    disabled={loading}
+                    disabled={
+                      loading ||
+                      availabilityLoading ||
+                      !!availabilityError ||
+                      !form.classDate ||
+                      !form.classTime
+                    }
                   >
                     {loading
                       ? "Submitting..."
@@ -561,7 +715,7 @@ function App() {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    <MessageCircle size={25} />
+                    <MessageCircle size={24} />
 
                     <div>
                       <strong>Chat with Us on WhatsApp</strong>
@@ -584,7 +738,6 @@ function App() {
             )}
           </>
         ) : (
-          /* SUCCESS MESSAGE */
           <section className="success-content">
             <div className="success-icon">
               <Check size={40} />
@@ -625,30 +778,22 @@ function App() {
         <div className="trust-features">
           <div>
             <Laptop />
-            <span>
-              Live Online<br />Classes
-            </span>
+            <span>Live Online<br />Classes</span>
           </div>
 
           <div>
             <ShieldCheck />
-            <span>
-              Experienced<br />Tutors
-            </span>
+            <span>Experienced<br />Tutors</span>
           </div>
 
           <div>
             <Star />
-            <span>
-              Project-Based<br />Learning
-            </span>
+            <span>Project-Based<br />Learning</span>
           </div>
 
           <div>
             <Users />
-            <span>
-              Small<br />Class Sizes
-            </span>
+            <span>Small<br />Class Sizes</span>
           </div>
         </div>
 
@@ -664,7 +809,6 @@ export default App;
 
 // import { useState } from "react";
 // import {
-//   Code2,
 //   User,
 //   Phone,
 //   CalendarDays,
@@ -691,7 +835,7 @@ export default App;
 //   },
 //   {
 //     id: "Grades 4 - 6",
-//     description: "Build real coding skills and create fun projects like games and apps.",
+//     description: "Build coding skills through exciting games, apps and creative projects.",
 //     emoji: "👧",
 //     color: "blue",
 //   },
@@ -703,7 +847,7 @@ export default App;
 //   },
 //   {
 //     id: "Grades 10 - 12",
-//     description: "Work on real-world projects, prepare for future careers and build a portfolio.",
+//     description: "Create real-world projects and build skills for future careers.",
 //     emoji: "👨",
 //     color: "orange",
 //   },
@@ -723,7 +867,7 @@ export default App;
 //   "5:00 PM",
 //   "6:00 PM",
 //   "7:00 PM",
-//   "Other / Flexible",
+//   "8:00 PM",
 // ];
 
 // const initialForm = {
@@ -762,6 +906,7 @@ export default App;
 // };
 
 // const SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL;
+// const WHATSAPP_NUMBER = "254118755558";
 
 // function App() {
 //   const [step, setStep] = useState(1);
@@ -829,8 +974,7 @@ export default App;
 //         body: JSON.stringify(payload),
 //       });
 
-//       // no-cors responses are opaque, so the browser cannot verify
-//       // whether Google Apps Script successfully saved the booking.
+//       // no-cors responses cannot confirm whether Google Sheets saved the booking.
 //       if (response.type === "opaque") {
 //         setSubmitted(true);
 //       } else if (response.ok) {
@@ -854,13 +998,13 @@ export default App;
 //   };
 
 //   const whatsappLink =
-//     "https://wa.me/254704494504?text=" +
+//     `https://wa.me/${WHATSAPP_NUMBER}?text=` +
 //     encodeURIComponent(
 //       "Hi Tech Talk Hub, I would like to book a free trial coding class."
 //     );
 
 //   const confirmationWhatsappLink =
-//     "https://wa.me/254704494504?text=" +
+//     `https://wa.me/${WHATSAPP_NUMBER}?text=` +
 //     encodeURIComponent(
 //       `Hi Tech Talk Hub, I have submitted a free trial booking.\n\nParent: ${form.parentName}\nChild: ${form.studentName}\nGrade: ${selectedGrade}\nPreferred Date: ${formatClassDate(form.classDate)}\nPreferred Time: ${form.classTime}`
 //     );
@@ -871,11 +1015,13 @@ export default App;
 
 //         {/* BRAND */}
 //         <header className="brand">
-//           <div className="brand-icon">
-//             <Code2 size={48} strokeWidth={3} />
-//           </div>
+//           <img
+//             src="/logo.png"
+//             alt="Tech Talk Hub logo"
+//             className="brand-logo"
+//           />
 
-//           <div>
+//           <div className="brand-text">
 //             <h1>Tech Talk Hub</h1>
 //             <p>Code · Create · Build · Grow</p>
 //           </div>
@@ -889,7 +1035,7 @@ export default App;
 //             }`}
 //           >
 //             <span className="progress-circle">
-//               {step === 1 ? "1" : <Check size={19} />}
+//               {step === 1 ? "1" : <Check size={17} />}
 //             </span>
 //             <span>Choose Grade</span>
 //           </div>
@@ -911,26 +1057,22 @@ export default App;
 //         {!submitted ? (
 //           <>
 //             {step === 1 ? (
-
 //               /* STEP 1: GRADE SELECTION */
-
 //               <section className="step-content">
 //                 <div className="intro">
 //                   <h2>
-//                     Give Your Child a<br />
-//                     Confident Start in <span>Coding</span>
+//                     Give Your Child a Confident Start in{" "}
+//                     <span>Coding</span>
 //                   </h2>
 
 //                   <p>
-//                     Choose your child's grade level to get started
-//                     <br className="desktop-break" />
-//                     with a free trial class.
+//                     Choose your child's grade level to get started with a free trial class.
 //                   </p>
 
-//                   <p>
+//                   <p className="live-class-note">
 //                     <strong>
 //                       Free trials are live online sessions with a real instructor.
-//                     </strong>
+//                     </strong>{" "}
 //                     Your child gets to interact, learn and try coding firsthand.
 //                   </p>
 //                 </div>
@@ -944,21 +1086,28 @@ export default App;
 //                       className={`grade-card ${grade.color}`}
 //                       onClick={() => chooseGrade(grade.id)}
 //                     >
-//                       <span className="grade-emoji">
-//                         {grade.emoji}
+//                       <span className="grade-card-top">
+//                         <span className="grade-emoji">
+//                           {grade.emoji}
+//                         </span>
+
+//                         <ChevronRight
+//                           className="grade-arrow"
+//                           size={21}
+//                         />
 //                       </span>
 
 //                       <span className="grade-title">
 //                         {grade.id}
 //                       </span>
 
-//                       <ChevronRight
-//                         className="grade-arrow"
-//                         size={23}
-//                       />
-
 //                       <span className="grade-description">
 //                         {grade.description}
+//                       </span>
+
+//                       <span className="grade-select">
+//                         Select level
+//                         <ArrowRight size={14} />
 //                       </span>
 //                     </button>
 //                   ))}
@@ -989,9 +1138,7 @@ export default App;
 //                         value={helpAge}
 //                         onChange={(e) => setHelpAge(e.target.value)}
 //                       >
-//                         <option value="">
-//                           Select child's age
-//                         </option>
+//                         <option value="">Select child's age</option>
 
 //                         {Array.from(
 //                           { length: 14 },
@@ -1043,25 +1190,21 @@ export default App;
 //                   </a>
 //                 </div>
 //               </section>
-
 //             ) : (
-
 //               /* STEP 2: BOOKING DETAILS */
-
 //               <section className="step-content details-content">
 //                 <div className="intro">
 //                   <h2>Great! Let's Get Started</h2>
 
 //                   <p>
 //                     Fill in the form below to book your child's free trial class
-//                     <br className="desktop-break" />
 //                     for <span>{selectedGrade}</span>.
 //                   </p>
 
-//                   <p>
+//                   <p className="live-class-note">
 //                     <strong>
 //                       This is a live online class with a Tech Talk Hub instructor.
-//                     </strong>
+//                     </strong>{" "}
 //                     Your child will interact directly with the instructor during the session.
 //                   </p>
 //                 </div>
@@ -1071,7 +1214,7 @@ export default App;
 //                   onSubmit={handleSubmit}
 //                 >
 //                   <div className="selected-grade">
-//                     <GraduationCap size={43} />
+//                     <GraduationCap size={40} />
 
 //                     <div>
 //                       <small>Selected Grade</small>
@@ -1209,7 +1352,7 @@ export default App;
 //                     target="_blank"
 //                     rel="noreferrer"
 //                   >
-//                     <MessageCircle size={25} />
+//                     <MessageCircle size={24} />
 
 //                     <div>
 //                       <strong>Chat with Us on WhatsApp</strong>
@@ -1232,9 +1375,7 @@ export default App;
 //             )}
 //           </>
 //         ) : (
-
 //           /* SUCCESS MESSAGE */
-
 //           <section className="success-content">
 //             <div className="success-icon">
 //               <Check size={40} />
@@ -1272,34 +1413,25 @@ export default App;
 //         )}
 
 //         {/* TRUST FEATURES */}
-
 //         <div className="trust-features">
 //           <div>
 //             <Laptop />
-//             <span>
-//               Live Online<br />Classes
-//             </span>
+//             <span>Live Online<br />Classes</span>
 //           </div>
 
 //           <div>
 //             <ShieldCheck />
-//             <span>
-//               Experienced<br />Tutors
-//             </span>
+//             <span>Experienced<br />Tutors</span>
 //           </div>
 
 //           <div>
 //             <Star />
-//             <span>
-//               Project-Based<br />Learning
-//             </span>
+//             <span>Project-Based<br />Learning</span>
 //           </div>
 
 //           <div>
 //             <Users />
-//             <span>
-//               Small<br />Class Sizes
-//             </span>
+//             <span>Small<br />Class Sizes</span>
 //           </div>
 //         </div>
 
@@ -1312,637 +1444,6 @@ export default App;
 // }
 
 // export default App;
-
-
-// import { useState } from "react";
-// import {
-//   Code2,
-//   User,
-//   Phone,
-//   CalendarDays,
-//   Clock,
-//   GraduationCap,
-//   Laptop,
-//   ShieldCheck,
-//   Star,
-//   Users,
-//   ChevronRight,
-//   Check,
-//   Lock,
-//   ArrowRight,
-//   MessageCircle,
-// } from "lucide-react";
-// import "./App.css";
-
-// const grades = [
-//   {
-//     id: "K - Grade 3",
-//     description: "Start with the basics of logic, games and creative projects.",
-//     emoji: "👦",
-//     color: "green",
-//   },
-//   {
-//     id: "Grades 4 - 6",
-//     description: "Build real coding skills and create fun projects like games and apps.",
-//     emoji: "👧",
-//     color: "blue",
-//   },
-//   {
-//     id: "Grades 7 - 9",
-//     description: "Explore advanced coding, web development and problem solving.",
-//     emoji: "🧑",
-//     color: "purple",
-//   },
-//   {
-//     id: "Grades 10 - 12",
-//     description: "Work on real-world projects, prepare for future careers and build a portfolio.",
-//     emoji: "👨",
-//     color: "orange",
-//   },
-// ];
-
-// const initialForm = {
-//   parentName: "",
-//   phone: "",
-//   studentName: "",
-//   classDate: "",
-//   classTime: "",
-// };
-
-// const getRecommendedGrade = (age) => {
-//   const childAge = Number(age);
-
-//   if (childAge <= 8) return "K - Grade 3";
-//   if (childAge <= 11) return "Grades 4 - 6";
-//   if (childAge <= 14) return "Grades 7 - 9";
-//   return "Grades 10 - 12";
-// };
-
-// const getTodayDate = () => {
-//   const today = new Date();
-
-//   return `${today.getFullYear()}-${String(
-//     today.getMonth() + 1
-//   ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-// };
-
-// const formatClassDate = (date) => {
-//   if (!date) return "";
-
-//   return new Date(`${date}T00:00:00`).toLocaleDateString("en-KE", {
-//     day: "numeric",
-//     month: "long",
-//     year: "numeric",
-//   });
-// };
-
-// const SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL;
-
-// function App() {
-//   const [step, setStep] = useState(1);
-//   const [selectedGrade, setSelectedGrade] = useState("");
-//   const [form, setForm] = useState(initialForm);
-//   const [loading, setLoading] = useState(false);
-//   const [submitted, setSubmitted] = useState(false);
-//   const [error, setError] = useState("");
-
-//   const [showHelp, setShowHelp] = useState(false);
-//   const [helpAge, setHelpAge] = useState("");
-
-//   const updateForm = (e) => {
-//     setForm((previous) => ({
-//       ...previous,
-//       [e.target.name]: e.target.value,
-//     }));
-//   };
-
-//   const chooseGrade = (grade) => {
-//     setSelectedGrade(grade);
-//     setStep(2);
-//     setError("");
-//   };
-
-//   const recommendedGrade = helpAge
-//     ? getRecommendedGrade(helpAge)
-//     : "";
-
-//   const handleSubmit = async (e) => {
-//     e.preventDefault();
-//     setError("");
-
-//     if (!SCRIPT_URL) {
-//       setError(
-//         "Booking service is not configured. Please contact us on WhatsApp."
-//       );
-//       return;
-//     }
-
-//     if (!selectedGrade) {
-//       setError("Please select your child's grade.");
-//       setStep(1);
-//       return;
-//     }
-
-//     setLoading(true);
-
-//     try {
-//       const payload = {
-//         parentName: form.parentName.trim(),
-//         phone: form.phone.trim(),
-//         studentName: form.studentName.trim(),
-//         grade: selectedGrade,
-//         classDate: form.classDate,
-//         classTime: form.classTime,
-//       };
-
-//       const response = await fetch(SCRIPT_URL, {
-//         method: "POST",
-//         mode: "no-cors",
-//         headers: {
-//           "Content-Type": "text/plain;charset=utf-8",
-//         },
-//         body: JSON.stringify(payload),
-//       });
-
-//       // no-cors responses are opaque, so the browser cannot verify
-//       // whether Google Apps Script successfully saved the booking.
-//       if (response.type === "opaque") {
-//         setSubmitted(true);
-//       } else if (response.ok) {
-//         const result = await response.json();
-
-//         if (result.success) {
-//           setSubmitted(true);
-//         } else {
-//           throw new Error(result.error || "Booking could not be saved.");
-//         }
-//       } else {
-//         throw new Error("Unable to submit your booking.");
-//       }
-//     } catch (err) {
-//       setError(
-//         "We couldn't confirm your submission. Please try again or contact us on WhatsApp."
-//       );
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-//   const whatsappLink =
-//     "https://wa.me/254704494504?text=" +
-//     encodeURIComponent(
-//       "Hi Tech Talk Hub, I would like to book a free trial coding class."
-//     );
-
-//   const confirmationWhatsappLink =
-//     "https://wa.me/254704494504?text=" +
-//     encodeURIComponent(
-//       `Hi Tech Talk Hub, I have submitted a free trial booking.\n\nParent: ${form.parentName}\nChild: ${form.studentName}\nGrade: ${selectedGrade}\nPreferred Date: ${formatClassDate(form.classDate)}\nPreferred Time: ${form.classTime}`
-//     );
-
-//   return (
-//     <main className="booking-page">
-//       <div className="booking-container">
-
-//         {/* BRAND */}
-//         <header className="brand">
-//           <div className="brand-icon">
-//             <Code2 size={48} strokeWidth={3} />
-//           </div>
-
-//           <div>
-//             <h1>Tech Talk Hub</h1>
-//             <p>Code · Create · Build · Grow</p>
-//           </div>
-//         </header>
-
-//         {/* PROGRESS */}
-//         <div className="progress">
-//           <div
-//             className={`progress-step ${
-//               step === 1 ? "active" : "completed"
-//             }`}
-//           >
-//             <span className="progress-circle">
-//               {step === 1 ? "1" : <Check size={19} />}
-//             </span>
-//             <span>Choose Grade</span>
-//           </div>
-
-//           <div className="progress-line">
-//             <div className={step === 2 ? "line-filled" : ""}></div>
-//           </div>
-
-//           <div
-//             className={`progress-step ${
-//               step === 2 ? "active" : ""
-//             }`}
-//           >
-//             <span className="progress-circle">2</span>
-//             <span>Enter Details</span>
-//           </div>
-//         </div>
-
-//         {!submitted ? (
-//           <>
-//             {step === 1 ? (
-
-//               /* STEP 1: GRADE SELECTION */
-
-//               <section className="step-content">
-//                 <div className="intro">
-//                   <h2>
-//                     Give Your Child a<br />
-//                     Confident Start in <span>Coding</span>
-//                   </h2>
-
-//                   <p>
-//                     Choose your child's grade level to get started
-//                     <br className="desktop-break" />
-//                     with a free trial class.
-//                   </p>
-//                 </div>
-
-//                 {/* GRADE CARDS */}
-//                 <div className="grade-grid">
-//                   {grades.map((grade) => (
-//                     <button
-//                       type="button"
-//                       key={grade.id}
-//                       className={`grade-card ${grade.color}`}
-//                       onClick={() => chooseGrade(grade.id)}
-//                     >
-//                       <span className="grade-emoji">
-//                         {grade.emoji}
-//                       </span>
-
-//                       <span className="grade-title">
-//                         {grade.id}
-//                       </span>
-
-//                       <ChevronRight
-//                         className="grade-arrow"
-//                         size={23}
-//                       />
-
-//                       <span className="grade-description">
-//                         {grade.description}
-//                       </span>
-//                     </button>
-//                   ))}
-//                 </div>
-
-//                 {/* HELP ME CHOOSE */}
-//                 <div className="grade-help">
-//                   <p>
-//                     Not sure which level is right for your child?
-//                   </p>
-
-//                   <button
-//                     type="button"
-//                     className="help-toggle"
-//                     onClick={() => setShowHelp(!showHelp)}
-//                   >
-//                     {showHelp ? "Close" : "Help me choose"}
-//                   </button>
-
-//                   {showHelp && (
-//                     <div className="help-panel">
-//                       <label htmlFor="helpAge">
-//                         How old is your child?
-//                       </label>
-
-//                       <select
-//                         id="helpAge"
-//                         value={helpAge}
-//                         onChange={(e) => setHelpAge(e.target.value)}
-//                       >
-//                         <option value="">
-//                           Select child's age
-//                         </option>
-
-//                         {Array.from(
-//                           { length: 14 },
-//                           (_, i) => i + 5
-//                         ).map((age) => (
-//                           <option key={age} value={age}>
-//                             {age} years
-//                           </option>
-//                         ))}
-//                       </select>
-
-//                       {helpAge && (
-//                         <div className="recommendation">
-//                           <p>
-//                             Based on your child's age, we recommend:
-//                           </p>
-
-//                           <strong>{recommendedGrade}</strong>
-
-//                           <small>
-//                             This is a starting recommendation.
-//                             Our team can confirm the appropriate
-//                             learning level during the free trial.
-//                           </small>
-
-//                           <button
-//                             type="button"
-//                             className="recommendation-button"
-//                             onClick={() =>
-//                               chooseGrade(recommendedGrade)
-//                             }
-//                           >
-//                             Continue with this level
-//                             <ArrowRight size={17} />
-//                           </button>
-//                         </div>
-//                       )}
-//                     </div>
-//                   )}
-
-//                   <a
-//                     className="help-whatsapp"
-//                     href={whatsappLink}
-//                     target="_blank"
-//                     rel="noreferrer"
-//                   >
-//                     <MessageCircle size={16} />
-//                     Need assistance? Chat with us
-//                   </a>
-//                 </div>
-//               </section>
-
-//             ) : (
-
-//               /* STEP 2: BOOKING DETAILS */
-
-//               <section className="step-content details-content">
-//                 <div className="intro">
-//                   <h2>Great! Let's Get Started</h2>
-
-//                   <p>
-//                     Fill in the form below to book your child's free trial class
-//                     <br className="desktop-break" />
-//                     for <span>{selectedGrade}</span>.
-//                   </p>
-//                 </div>
-
-//                 <form
-//                   className="booking-form"
-//                   onSubmit={handleSubmit}
-//                 >
-//                   <div className="selected-grade">
-//                     <GraduationCap size={43} />
-
-//                     <div>
-//                       <small>Selected Grade</small>
-//                       <strong>{selectedGrade}</strong>
-//                     </div>
-
-//                     <button
-//                       type="button"
-//                       className="edit-button"
-//                       onClick={() => setStep(1)}
-//                     >
-//                       Edit
-//                     </button>
-//                   </div>
-
-//                   <div className="form-fields">
-//                     <label htmlFor="parentName">
-//                       Parent's Full Name <b>*</b>
-//                     </label>
-
-//                     <div className="input-wrap">
-//                       <User />
-//                       <input
-//                         id="parentName"
-//                         name="parentName"
-//                         value={form.parentName}
-//                         onChange={updateForm}
-//                         placeholder="Enter your name"
-//                         autoComplete="name"
-//                         required
-//                       />
-//                     </div>
-
-//                     <label htmlFor="phone">
-//                       Phone Number <b>*</b>
-//                     </label>
-
-//                     <div className="input-wrap">
-//                       <Phone />
-//                       <input
-//                         id="phone"
-//                         name="phone"
-//                         type="tel"
-//                         value={form.phone}
-//                         onChange={updateForm}
-//                         placeholder="Enter your phone number"
-//                         autoComplete="tel"
-//                         required
-//                       />
-//                     </div>
-
-//                     <label htmlFor="studentName">
-//                       Child's Name <b>*</b>
-//                     </label>
-
-//                     <div className="input-wrap">
-//                       <User />
-//                       <input
-//                         id="studentName"
-//                         name="studentName"
-//                         value={form.studentName}
-//                         onChange={updateForm}
-//                         placeholder="Enter your child's name"
-//                         required
-//                       />
-//                     </div>
-
-//                     <label htmlFor="classDate">
-//                       Preferred Class Date <b>*</b>
-//                     </label>
-
-//                     <div className="input-wrap">
-//                       <CalendarDays />
-//                       <input
-//                         id="classDate"
-//                         name="classDate"
-//                         type="date"
-//                         min={getTodayDate()}
-//                         value={form.classDate}
-//                         onChange={updateForm}
-//                         required
-//                       />
-//                     </div>
-
-//                     <label htmlFor="classTime">
-//                       Preferred Class Time <b>*</b>
-//                     </label>
-
-//                     <div className="input-wrap">
-//                       <Clock />
-
-//                       <select
-//                         id="classTime"
-//                         name="classTime"
-//                         value={form.classTime}
-//                         onChange={updateForm}
-//                         required
-//                       >
-//                         <option value="">Select a time</option>
-//                         {[
-//                           "8:00 AM",
-//                           "9:00 AM",
-//                           "10:00 AM",
-//                           "11:00 AM",
-//                           "12:00 PM",
-//                           "1:00 PM",
-//                           "2:00 PM",
-//                           "3:00 PM",
-//                           "4:00 PM",
-//                           "5:00 PM",
-//                         ].map((time) => (
-//                           <option key={time} value={time}>
-//                             {time}
-//                           </option>
-//                         ))}
-//                       </select>
-//                     </div>
-//                   </div>
-
-//                   {error && (
-//                     <p className="error-message" role="alert">
-//                       {error}
-//                     </p>
-//                   )}
-
-//                   <button
-//                     type="submit"
-//                     className="submit-button"
-//                     disabled={loading}
-//                   >
-//                     {loading
-//                       ? "Submitting..."
-//                       : "Book Free Trial Class"}
-
-//                     {!loading && <ArrowRight size={20} />}
-//                   </button>
-
-//                   <div className="or-divider">
-//                     <span></span> OR <span></span>
-//                   </div>
-
-//                   <a
-//                     className="whatsapp-button"
-//                     href={whatsappLink}
-//                     target="_blank"
-//                     rel="noreferrer"
-//                   >
-//                     <MessageCircle size={25} />
-
-//                     <div>
-//                       <strong>Chat with Us on WhatsApp</strong>
-//                       <small>
-//                         Have questions? We're here to help!
-//                       </small>
-//                     </div>
-//                   </a>
-
-//                   <div className="privacy-note">
-//                     <Lock size={15} />
-
-//                     <span>
-//                       Your information is used for class booking
-//                       and communication.
-//                     </span>
-//                   </div>
-//                 </form>
-//               </section>
-//             )}
-//           </>
-//         ) : (
-
-//           /* SUCCESS MESSAGE */
-
-//           <section className="success-content">
-//             <div className="success-icon">
-//               <Check size={40} />
-//             </div>
-
-//             <h2>Booking Received!</h2>
-
-//             <p>
-//               Thank you, {form.parentName}. We've received your request
-//               for {form.studentName}'s free trial coding class.
-//             </p>
-
-//             <p>
-//               <strong>Selected Grade:</strong> {selectedGrade}
-//               <br />
-//               <strong>Preferred Date:</strong> {formatClassDate(form.classDate)}
-//               <br />
-//               <strong>Preferred Time:</strong> {form.classTime}
-//             </p>
-
-//             <p>
-//               Our team will contact you shortly to confirm the class.
-//             </p>
-
-//             <a
-//               href={confirmationWhatsappLink}
-//               className="submit-button"
-//               target="_blank"
-//               rel="noreferrer"
-//             >
-//               Chat with Us on WhatsApp
-//             </a>
-//           </section>
-//         )}
-
-//         {/* TRUST FEATURES */}
-
-//         <div className="trust-features">
-//           <div>
-//             <Laptop />
-//             <span>
-//               Live Online<br />Classes
-//             </span>
-//           </div>
-
-//           <div>
-//             <ShieldCheck />
-//             <span>
-//               Experienced<br />Tutors
-//             </span>
-//           </div>
-
-//           <div>
-//             <Star />
-//             <span>
-//               Project-Based<br />Learning
-//             </span>
-//           </div>
-
-//           <div>
-//             <Users />
-//             <span>
-//               Small<br />Class Sizes
-//             </span>
-//           </div>
-//         </div>
-
-//         <footer>
-//           Tech Talk Hub <span>|</span> Learn Today. Build Tomorrow.
-//         </footer>
-//       </div>
-//     </main>
-//   );
-// }
-
-// export default App;
-
 
 // // import { useState } from "react";
 // // import {
@@ -1991,15 +1492,30 @@ export default App;
 // //   },
 // // ];
 
+// // const classTimes = [
+// //   "7:00 AM",
+// //   "8:00 AM",
+// //   "9:00 AM",
+// //   "10:00 AM",
+// //   "11:00 AM",
+// //   "12:00 PM",
+// //   "1:00 PM",
+// //   "2:00 PM",
+// //   "3:00 PM",
+// //   "4:00 PM",
+// //   "5:00 PM",
+// //   "6:00 PM",
+// //   "7:00 PM",
+// //   "Other / Flexible",
+// // ];
+
 // // const initialForm = {
 // //   parentName: "",
 // //   phone: "",
 // //   studentName: "",
-// //   grade: "",
 // //   classDate: "",
 // //   classTime: "",
 // // };
-
 
 // // const getRecommendedGrade = (age) => {
 // //   const childAge = Number(age);
@@ -2008,6 +1524,24 @@ export default App;
 // //   if (childAge <= 11) return "Grades 4 - 6";
 // //   if (childAge <= 14) return "Grades 7 - 9";
 // //   return "Grades 10 - 12";
+// // };
+
+// // const getTodayDate = () => {
+// //   const today = new Date();
+
+// //   return `${today.getFullYear()}-${String(
+// //     today.getMonth() + 1
+// //   ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+// // };
+
+// // const formatClassDate = (date) => {
+// //   if (!date) return "";
+
+// //   return new Date(`${date}T00:00:00`).toLocaleDateString("en-KE", {
+// //     day: "numeric",
+// //     month: "long",
+// //     year: "numeric",
+// //   });
 // // };
 
 // // const SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL;
@@ -2064,8 +1598,8 @@ export default App;
 // //         parentName: form.parentName.trim(),
 // //         phone: form.phone.trim(),
 // //         studentName: form.studentName.trim(),
-// //         age: form.age,
 // //         grade: selectedGrade,
+// //         classDate: form.classDate,
 // //         classTime: form.classTime,
 // //       };
 
@@ -2078,7 +1612,7 @@ export default App;
 // //         body: JSON.stringify(payload),
 // //       });
 
-// //       // A no-cors response is opaque. The browser cannot verify
+// //       // no-cors responses are opaque, so the browser cannot verify
 // //       // whether Google Apps Script successfully saved the booking.
 // //       if (response.type === "opaque") {
 // //         setSubmitted(true);
@@ -2106,6 +1640,647 @@ export default App;
 // //     "https://wa.me/254704494504?text=" +
 // //     encodeURIComponent(
 // //       "Hi Tech Talk Hub, I would like to book a free trial coding class."
+// //     );
+
+// //   const confirmationWhatsappLink =
+// //     "https://wa.me/254704494504?text=" +
+// //     encodeURIComponent(
+// //       `Hi Tech Talk Hub, I have submitted a free trial booking.\n\nParent: ${form.parentName}\nChild: ${form.studentName}\nGrade: ${selectedGrade}\nPreferred Date: ${formatClassDate(form.classDate)}\nPreferred Time: ${form.classTime}`
+// //     );
+
+// //   return (
+// //     <main className="booking-page">
+// //       <div className="booking-container">
+
+// //         {/* BRAND */}
+// //         <header className="brand">
+// //           <div className="brand-icon">
+// //             <Code2 size={48} strokeWidth={3} />
+// //           </div>
+
+// //           <div>
+// //             <h1>Tech Talk Hub</h1>
+// //             <p>Code · Create · Build · Grow</p>
+// //           </div>
+// //         </header>
+
+// //         {/* PROGRESS */}
+// //         <div className="progress">
+// //           <div
+// //             className={`progress-step ${
+// //               step === 1 ? "active" : "completed"
+// //             }`}
+// //           >
+// //             <span className="progress-circle">
+// //               {step === 1 ? "1" : <Check size={19} />}
+// //             </span>
+// //             <span>Choose Grade</span>
+// //           </div>
+
+// //           <div className="progress-line">
+// //             <div className={step === 2 ? "line-filled" : ""}></div>
+// //           </div>
+
+// //           <div
+// //             className={`progress-step ${
+// //               step === 2 ? "active" : ""
+// //             }`}
+// //           >
+// //             <span className="progress-circle">2</span>
+// //             <span>Enter Details</span>
+// //           </div>
+// //         </div>
+
+// //         {!submitted ? (
+// //           <>
+// //             {step === 1 ? (
+
+// //               /* STEP 1: GRADE SELECTION */
+
+// //               <section className="step-content">
+// //                 <div className="intro">
+// //                   <h2>
+// //                     Give Your Child a<br />
+// //                     Confident Start in <span>Coding</span>
+// //                   </h2>
+
+// //                   <p>
+// //                     Choose your child's grade level to get started
+// //                     <br className="desktop-break" />
+// //                     with a free trial class.
+// //                   </p>
+
+// //                   <p>
+// //                     <strong>
+// //                       Free trials are live online sessions with a real instructor.
+// //                     </strong>
+// //                     Your child gets to interact, learn and try coding firsthand.
+// //                   </p>
+// //                 </div>
+
+// //                 {/* GRADE CARDS */}
+// //                 <div className="grade-grid">
+// //                   {grades.map((grade) => (
+// //                     <button
+// //                       type="button"
+// //                       key={grade.id}
+// //                       className={`grade-card ${grade.color}`}
+// //                       onClick={() => chooseGrade(grade.id)}
+// //                     >
+// //                       <span className="grade-emoji">
+// //                         {grade.emoji}
+// //                       </span>
+
+// //                       <span className="grade-title">
+// //                         {grade.id}
+// //                       </span>
+
+// //                       <ChevronRight
+// //                         className="grade-arrow"
+// //                         size={23}
+// //                       />
+
+// //                       <span className="grade-description">
+// //                         {grade.description}
+// //                       </span>
+// //                     </button>
+// //                   ))}
+// //                 </div>
+
+// //                 {/* HELP ME CHOOSE */}
+// //                 <div className="grade-help">
+// //                   <p>
+// //                     Not sure which level is right for your child?
+// //                   </p>
+
+// //                   <button
+// //                     type="button"
+// //                     className="help-toggle"
+// //                     onClick={() => setShowHelp(!showHelp)}
+// //                   >
+// //                     {showHelp ? "Close" : "Help me choose"}
+// //                   </button>
+
+// //                   {showHelp && (
+// //                     <div className="help-panel">
+// //                       <label htmlFor="helpAge">
+// //                         How old is your child?
+// //                       </label>
+
+// //                       <select
+// //                         id="helpAge"
+// //                         value={helpAge}
+// //                         onChange={(e) => setHelpAge(e.target.value)}
+// //                       >
+// //                         <option value="">
+// //                           Select child's age
+// //                         </option>
+
+// //                         {Array.from(
+// //                           { length: 14 },
+// //                           (_, i) => i + 5
+// //                         ).map((age) => (
+// //                           <option key={age} value={age}>
+// //                             {age} years
+// //                           </option>
+// //                         ))}
+// //                       </select>
+
+// //                       {helpAge && (
+// //                         <div className="recommendation">
+// //                           <p>
+// //                             Based on your child's age, we recommend:
+// //                           </p>
+
+// //                           <strong>{recommendedGrade}</strong>
+
+// //                           <small>
+// //                             This is a starting recommendation.
+// //                             Our team can confirm the appropriate
+// //                             learning level during the free trial.
+// //                           </small>
+
+// //                           <button
+// //                             type="button"
+// //                             className="recommendation-button"
+// //                             onClick={() =>
+// //                               chooseGrade(recommendedGrade)
+// //                             }
+// //                           >
+// //                             Continue with this level
+// //                             <ArrowRight size={17} />
+// //                           </button>
+// //                         </div>
+// //                       )}
+// //                     </div>
+// //                   )}
+
+// //                   <a
+// //                     className="help-whatsapp"
+// //                     href={whatsappLink}
+// //                     target="_blank"
+// //                     rel="noreferrer"
+// //                   >
+// //                     <MessageCircle size={16} />
+// //                     Need assistance? Chat with us
+// //                   </a>
+// //                 </div>
+// //               </section>
+
+// //             ) : (
+
+// //               /* STEP 2: BOOKING DETAILS */
+
+// //               <section className="step-content details-content">
+// //                 <div className="intro">
+// //                   <h2>Great! Let's Get Started</h2>
+
+// //                   <p>
+// //                     Fill in the form below to book your child's free trial class
+// //                     <br className="desktop-break" />
+// //                     for <span>{selectedGrade}</span>.
+// //                   </p>
+
+// //                   <p>
+// //                     <strong>
+// //                       This is a live online class with a Tech Talk Hub instructor.
+// //                     </strong>
+// //                     Your child will interact directly with the instructor during the session.
+// //                   </p>
+// //                 </div>
+
+// //                 <form
+// //                   className="booking-form"
+// //                   onSubmit={handleSubmit}
+// //                 >
+// //                   <div className="selected-grade">
+// //                     <GraduationCap size={43} />
+
+// //                     <div>
+// //                       <small>Selected Grade</small>
+// //                       <strong>{selectedGrade}</strong>
+// //                     </div>
+
+// //                     <button
+// //                       type="button"
+// //                       className="edit-button"
+// //                       onClick={() => setStep(1)}
+// //                     >
+// //                       Edit
+// //                     </button>
+// //                   </div>
+
+// //                   <div className="form-fields">
+// //                     <label htmlFor="parentName">
+// //                       Parent's Name <b>*</b>
+// //                     </label>
+
+// //                     <div className="input-wrap">
+// //                       <User />
+// //                       <input
+// //                         id="parentName"
+// //                         name="parentName"
+// //                         value={form.parentName}
+// //                         onChange={updateForm}
+// //                         placeholder="Enter your name"
+// //                         autoComplete="name"
+// //                         required
+// //                       />
+// //                     </div>
+
+// //                     <label htmlFor="phone">
+// //                       Phone Number <b>*</b>
+// //                     </label>
+
+// //                     <div className="input-wrap">
+// //                       <Phone />
+// //                       <input
+// //                         id="phone"
+// //                         name="phone"
+// //                         type="tel"
+// //                         value={form.phone}
+// //                         onChange={updateForm}
+// //                         placeholder="Enter your phone number"
+// //                         autoComplete="tel"
+// //                         required
+// //                       />
+// //                     </div>
+
+// //                     <label htmlFor="studentName">
+// //                       Student's Name <b>*</b>
+// //                     </label>
+
+// //                     <div className="input-wrap">
+// //                       <User />
+// //                       <input
+// //                         id="studentName"
+// //                         name="studentName"
+// //                         value={form.studentName}
+// //                         onChange={updateForm}
+// //                         placeholder="Enter your child's name"
+// //                         required
+// //                       />
+// //                     </div>
+
+// //                     <label htmlFor="classDate">
+// //                       Preferred Class Date <b>*</b>
+// //                     </label>
+
+// //                     <div className="input-wrap">
+// //                       <CalendarDays />
+// //                       <input
+// //                         id="classDate"
+// //                         name="classDate"
+// //                         type="date"
+// //                         min={getTodayDate()}
+// //                         value={form.classDate}
+// //                         onChange={updateForm}
+// //                         required
+// //                       />
+// //                     </div>
+
+// //                     <label htmlFor="classTime">
+// //                       Preferred Class Time <b>*</b>
+// //                     </label>
+
+// //                     <div className="input-wrap">
+// //                       <Clock />
+
+// //                       <select
+// //                         id="classTime"
+// //                         name="classTime"
+// //                         value={form.classTime}
+// //                         onChange={updateForm}
+// //                         required
+// //                       >
+// //                         <option value="">Select a time</option>
+
+// //                         {classTimes.map((time) => (
+// //                           <option key={time} value={time}>
+// //                             {time}
+// //                           </option>
+// //                         ))}
+// //                       </select>
+// //                     </div>
+// //                   </div>
+
+// //                   {error && (
+// //                     <p className="error-message" role="alert">
+// //                       {error}
+// //                     </p>
+// //                   )}
+
+// //                   <button
+// //                     type="submit"
+// //                     className="submit-button"
+// //                     disabled={loading}
+// //                   >
+// //                     {loading
+// //                       ? "Submitting..."
+// //                       : "Book Free Trial Class"}
+
+// //                     {!loading && <ArrowRight size={20} />}
+// //                   </button>
+
+// //                   <div className="or-divider">
+// //                     <span></span> OR <span></span>
+// //                   </div>
+
+// //                   <a
+// //                     className="whatsapp-button"
+// //                     href={whatsappLink}
+// //                     target="_blank"
+// //                     rel="noreferrer"
+// //                   >
+// //                     <MessageCircle size={25} />
+
+// //                     <div>
+// //                       <strong>Chat with Us on WhatsApp</strong>
+// //                       <small>
+// //                         Have questions? We're here to help!
+// //                       </small>
+// //                     </div>
+// //                   </a>
+
+// //                   <div className="privacy-note">
+// //                     <Lock size={15} />
+
+// //                     <span>
+// //                       Your information is used for class booking
+// //                       and communication.
+// //                     </span>
+// //                   </div>
+// //                 </form>
+// //               </section>
+// //             )}
+// //           </>
+// //         ) : (
+
+// //           /* SUCCESS MESSAGE */
+
+// //           <section className="success-content">
+// //             <div className="success-icon">
+// //               <Check size={40} />
+// //             </div>
+
+// //             <h2>Booking Received!</h2>
+
+// //             <p>
+// //               Thank you, {form.parentName}. We've received your request
+// //               for {form.studentName}'s free trial coding class.
+// //             </p>
+
+// //             <p>
+// //               <strong>Selected Grade:</strong> {selectedGrade}
+// //               <br />
+// //               <strong>Preferred Date:</strong> {formatClassDate(form.classDate)}
+// //               <br />
+// //               <strong>Preferred Time:</strong> {form.classTime}
+// //             </p>
+
+// //             <p>
+// //               Our team will contact you shortly to confirm the class.
+// //               Your trial will be a live online session with an instructor.
+// //             </p>
+
+// //             <a
+// //               href={confirmationWhatsappLink}
+// //               className="submit-button"
+// //               target="_blank"
+// //               rel="noreferrer"
+// //             >
+// //               Chat with Us on WhatsApp
+// //             </a>
+// //           </section>
+// //         )}
+
+// //         {/* TRUST FEATURES */}
+
+// //         <div className="trust-features">
+// //           <div>
+// //             <Laptop />
+// //             <span>
+// //               Live Online<br />Classes
+// //             </span>
+// //           </div>
+
+// //           <div>
+// //             <ShieldCheck />
+// //             <span>
+// //               Experienced<br />Tutors
+// //             </span>
+// //           </div>
+
+// //           <div>
+// //             <Star />
+// //             <span>
+// //               Project-Based<br />Learning
+// //             </span>
+// //           </div>
+
+// //           <div>
+// //             <Users />
+// //             <span>
+// //               Small<br />Class Sizes
+// //             </span>
+// //           </div>
+// //         </div>
+
+// //         <footer>
+// //           Tech Talk Hub <span>|</span> Learn Today. Build Tomorrow.
+// //         </footer>
+// //       </div>
+// //     </main>
+// //   );
+// // }
+
+// // export default App;
+
+
+// // import { useState } from "react";
+// // import {
+// //   Code2,
+// //   User,
+// //   Phone,
+// //   CalendarDays,
+// //   Clock,
+// //   GraduationCap,
+// //   Laptop,
+// //   ShieldCheck,
+// //   Star,
+// //   Users,
+// //   ChevronRight,
+// //   Check,
+// //   Lock,
+// //   ArrowRight,
+// //   MessageCircle,
+// // } from "lucide-react";
+// // import "./App.css";
+
+// // const grades = [
+// //   {
+// //     id: "K - Grade 3",
+// //     description: "Start with the basics of logic, games and creative projects.",
+// //     emoji: "👦",
+// //     color: "green",
+// //   },
+// //   {
+// //     id: "Grades 4 - 6",
+// //     description: "Build real coding skills and create fun projects like games and apps.",
+// //     emoji: "👧",
+// //     color: "blue",
+// //   },
+// //   {
+// //     id: "Grades 7 - 9",
+// //     description: "Explore advanced coding, web development and problem solving.",
+// //     emoji: "🧑",
+// //     color: "purple",
+// //   },
+// //   {
+// //     id: "Grades 10 - 12",
+// //     description: "Work on real-world projects, prepare for future careers and build a portfolio.",
+// //     emoji: "👨",
+// //     color: "orange",
+// //   },
+// // ];
+
+// // const initialForm = {
+// //   parentName: "",
+// //   phone: "",
+// //   studentName: "",
+// //   classDate: "",
+// //   classTime: "",
+// // };
+
+// // const getRecommendedGrade = (age) => {
+// //   const childAge = Number(age);
+
+// //   if (childAge <= 8) return "K - Grade 3";
+// //   if (childAge <= 11) return "Grades 4 - 6";
+// //   if (childAge <= 14) return "Grades 7 - 9";
+// //   return "Grades 10 - 12";
+// // };
+
+// // const getTodayDate = () => {
+// //   const today = new Date();
+
+// //   return `${today.getFullYear()}-${String(
+// //     today.getMonth() + 1
+// //   ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+// // };
+
+// // const formatClassDate = (date) => {
+// //   if (!date) return "";
+
+// //   return new Date(`${date}T00:00:00`).toLocaleDateString("en-KE", {
+// //     day: "numeric",
+// //     month: "long",
+// //     year: "numeric",
+// //   });
+// // };
+
+// // const SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL;
+
+// // function App() {
+// //   const [step, setStep] = useState(1);
+// //   const [selectedGrade, setSelectedGrade] = useState("");
+// //   const [form, setForm] = useState(initialForm);
+// //   const [loading, setLoading] = useState(false);
+// //   const [submitted, setSubmitted] = useState(false);
+// //   const [error, setError] = useState("");
+
+// //   const [showHelp, setShowHelp] = useState(false);
+// //   const [helpAge, setHelpAge] = useState("");
+
+// //   const updateForm = (e) => {
+// //     setForm((previous) => ({
+// //       ...previous,
+// //       [e.target.name]: e.target.value,
+// //     }));
+// //   };
+
+// //   const chooseGrade = (grade) => {
+// //     setSelectedGrade(grade);
+// //     setStep(2);
+// //     setError("");
+// //   };
+
+// //   const recommendedGrade = helpAge
+// //     ? getRecommendedGrade(helpAge)
+// //     : "";
+
+// //   const handleSubmit = async (e) => {
+// //     e.preventDefault();
+// //     setError("");
+
+// //     if (!SCRIPT_URL) {
+// //       setError(
+// //         "Booking service is not configured. Please contact us on WhatsApp."
+// //       );
+// //       return;
+// //     }
+
+// //     if (!selectedGrade) {
+// //       setError("Please select your child's grade.");
+// //       setStep(1);
+// //       return;
+// //     }
+
+// //     setLoading(true);
+
+// //     try {
+// //       const payload = {
+// //         parentName: form.parentName.trim(),
+// //         phone: form.phone.trim(),
+// //         studentName: form.studentName.trim(),
+// //         grade: selectedGrade,
+// //         classDate: form.classDate,
+// //         classTime: form.classTime,
+// //       };
+
+// //       const response = await fetch(SCRIPT_URL, {
+// //         method: "POST",
+// //         mode: "no-cors",
+// //         headers: {
+// //           "Content-Type": "text/plain;charset=utf-8",
+// //         },
+// //         body: JSON.stringify(payload),
+// //       });
+
+// //       // no-cors responses are opaque, so the browser cannot verify
+// //       // whether Google Apps Script successfully saved the booking.
+// //       if (response.type === "opaque") {
+// //         setSubmitted(true);
+// //       } else if (response.ok) {
+// //         const result = await response.json();
+
+// //         if (result.success) {
+// //           setSubmitted(true);
+// //         } else {
+// //           throw new Error(result.error || "Booking could not be saved.");
+// //         }
+// //       } else {
+// //         throw new Error("Unable to submit your booking.");
+// //       }
+// //     } catch (err) {
+// //       setError(
+// //         "We couldn't confirm your submission. Please try again or contact us on WhatsApp."
+// //       );
+// //     } finally {
+// //       setLoading(false);
+// //     }
+// //   };
+
+// //   const whatsappLink =
+// //     "https://wa.me/254704494504?text=" +
+// //     encodeURIComponent(
+// //       "Hi Tech Talk Hub, I would like to book a free trial coding class."
+// //     );
+
+// //   const confirmationWhatsappLink =
+// //     "https://wa.me/254704494504?text=" +
+// //     encodeURIComponent(
+// //       `Hi Tech Talk Hub, I have submitted a free trial booking.\n\nParent: ${form.parentName}\nChild: ${form.studentName}\nGrade: ${selectedGrade}\nPreferred Date: ${formatClassDate(form.classDate)}\nPreferred Time: ${form.classTime}`
 // //     );
 
 // //   return (
@@ -2368,30 +2543,21 @@ export default App;
 // //                       />
 // //                     </div>
 
-// //                     <label htmlFor="age">
-// //                       Child's Age <b>*</b>
+// //                     <label htmlFor="classDate">
+// //                       Preferred Class Date <b>*</b>
 // //                     </label>
 
 // //                     <div className="input-wrap">
 // //                       <CalendarDays />
-// //                       <select
-// //                         id="age"
-// //                         name="age"
-// //                         value={form.age}
+// //                       <input
+// //                         id="classDate"
+// //                         name="classDate"
+// //                         type="date"
+// //                         min={getTodayDate()}
+// //                         value={form.classDate}
 // //                         onChange={updateForm}
 // //                         required
-// //                       >
-// //                         <option value="">Select age</option>
-
-// //                         {Array.from(
-// //                           { length: 14 },
-// //                           (_, i) => i + 5
-// //                         ).map((age) => (
-// //                           <option key={age} value={age}>
-// //                             {age} years
-// //                           </option>
-// //                         ))}
-// //                       </select>
+// //                       />
 // //                     </div>
 
 // //                     <label htmlFor="classTime">
@@ -2409,24 +2575,22 @@ export default App;
 // //                         required
 // //                       >
 // //                         <option value="">Select a time</option>
-// //                         <option value="Weekday Morning">
-// //                           Weekday Morning
-// //                         </option>
-// //                         <option value="Weekday Afternoon">
-// //                           Weekday Afternoon
-// //                         </option>
-// //                         <option value="Weekday Evening">
-// //                           Weekday Evening
-// //                         </option>
-// //                         <option value="Saturday">
-// //                           Saturday
-// //                         </option>
-// //                         <option value="Sunday">
-// //                           Sunday
-// //                         </option>
-// //                         <option value="Flexible">
-// //                           Flexible
-// //                         </option>
+// //                         {[
+// //                           "8:00 AM",
+// //                           "9:00 AM",
+// //                           "10:00 AM",
+// //                           "11:00 AM",
+// //                           "12:00 PM",
+// //                           "1:00 PM",
+// //                           "2:00 PM",
+// //                           "3:00 PM",
+// //                           "4:00 PM",
+// //                           "5:00 PM",
+// //                         ].map((time) => (
+// //                           <option key={time} value={time}>
+// //                             {time}
+// //                           </option>
+// //                         ))}
 // //                       </select>
 // //                     </div>
 // //                   </div>
@@ -2498,11 +2662,19 @@ export default App;
 // //             </p>
 
 // //             <p>
+// //               <strong>Selected Grade:</strong> {selectedGrade}
+// //               <br />
+// //               <strong>Preferred Date:</strong> {formatClassDate(form.classDate)}
+// //               <br />
+// //               <strong>Preferred Time:</strong> {form.classTime}
+// //             </p>
+
+// //             <p>
 // //               Our team will contact you shortly to confirm the class.
 // //             </p>
 
 // //             <a
-// //               href={whatsappLink}
+// //               href={confirmationWhatsappLink}
 // //               className="submit-button"
 // //               target="_blank"
 // //               rel="noreferrer"
@@ -2553,3 +2725,614 @@ export default App;
 // // }
 
 // // export default App;
+
+
+// // // import { useState } from "react";
+// // // import {
+// // //   Code2,
+// // //   User,
+// // //   Phone,
+// // //   CalendarDays,
+// // //   Clock,
+// // //   GraduationCap,
+// // //   Laptop,
+// // //   ShieldCheck,
+// // //   Star,
+// // //   Users,
+// // //   ChevronRight,
+// // //   Check,
+// // //   Lock,
+// // //   ArrowRight,
+// // //   MessageCircle,
+// // // } from "lucide-react";
+// // // import "./App.css";
+
+// // // const grades = [
+// // //   {
+// // //     id: "K - Grade 3",
+// // //     description: "Start with the basics of logic, games and creative projects.",
+// // //     emoji: "👦",
+// // //     color: "green",
+// // //   },
+// // //   {
+// // //     id: "Grades 4 - 6",
+// // //     description: "Build real coding skills and create fun projects like games and apps.",
+// // //     emoji: "👧",
+// // //     color: "blue",
+// // //   },
+// // //   {
+// // //     id: "Grades 7 - 9",
+// // //     description: "Explore advanced coding, web development and problem solving.",
+// // //     emoji: "🧑",
+// // //     color: "purple",
+// // //   },
+// // //   {
+// // //     id: "Grades 10 - 12",
+// // //     description: "Work on real-world projects, prepare for future careers and build a portfolio.",
+// // //     emoji: "👨",
+// // //     color: "orange",
+// // //   },
+// // // ];
+
+// // // const initialForm = {
+// // //   parentName: "",
+// // //   phone: "",
+// // //   studentName: "",
+// // //   grade: "",
+// // //   classDate: "",
+// // //   classTime: "",
+// // // };
+
+
+// // // const getRecommendedGrade = (age) => {
+// // //   const childAge = Number(age);
+
+// // //   if (childAge <= 8) return "K - Grade 3";
+// // //   if (childAge <= 11) return "Grades 4 - 6";
+// // //   if (childAge <= 14) return "Grades 7 - 9";
+// // //   return "Grades 10 - 12";
+// // // };
+
+// // // const SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL;
+
+// // // function App() {
+// // //   const [step, setStep] = useState(1);
+// // //   const [selectedGrade, setSelectedGrade] = useState("");
+// // //   const [form, setForm] = useState(initialForm);
+// // //   const [loading, setLoading] = useState(false);
+// // //   const [submitted, setSubmitted] = useState(false);
+// // //   const [error, setError] = useState("");
+
+// // //   const [showHelp, setShowHelp] = useState(false);
+// // //   const [helpAge, setHelpAge] = useState("");
+
+// // //   const updateForm = (e) => {
+// // //     setForm((previous) => ({
+// // //       ...previous,
+// // //       [e.target.name]: e.target.value,
+// // //     }));
+// // //   };
+
+// // //   const chooseGrade = (grade) => {
+// // //     setSelectedGrade(grade);
+// // //     setStep(2);
+// // //     setError("");
+// // //   };
+
+// // //   const recommendedGrade = helpAge
+// // //     ? getRecommendedGrade(helpAge)
+// // //     : "";
+
+// // //   const handleSubmit = async (e) => {
+// // //     e.preventDefault();
+// // //     setError("");
+
+// // //     if (!SCRIPT_URL) {
+// // //       setError(
+// // //         "Booking service is not configured. Please contact us on WhatsApp."
+// // //       );
+// // //       return;
+// // //     }
+
+// // //     if (!selectedGrade) {
+// // //       setError("Please select your child's grade.");
+// // //       setStep(1);
+// // //       return;
+// // //     }
+
+// // //     setLoading(true);
+
+// // //     try {
+// // //       const payload = {
+// // //         parentName: form.parentName.trim(),
+// // //         phone: form.phone.trim(),
+// // //         studentName: form.studentName.trim(),
+// // //         age: form.age,
+// // //         grade: selectedGrade,
+// // //         classTime: form.classTime,
+// // //       };
+
+// // //       const response = await fetch(SCRIPT_URL, {
+// // //         method: "POST",
+// // //         mode: "no-cors",
+// // //         headers: {
+// // //           "Content-Type": "text/plain;charset=utf-8",
+// // //         },
+// // //         body: JSON.stringify(payload),
+// // //       });
+
+// // //       // A no-cors response is opaque. The browser cannot verify
+// // //       // whether Google Apps Script successfully saved the booking.
+// // //       if (response.type === "opaque") {
+// // //         setSubmitted(true);
+// // //       } else if (response.ok) {
+// // //         const result = await response.json();
+
+// // //         if (result.success) {
+// // //           setSubmitted(true);
+// // //         } else {
+// // //           throw new Error(result.error || "Booking could not be saved.");
+// // //         }
+// // //       } else {
+// // //         throw new Error("Unable to submit your booking.");
+// // //       }
+// // //     } catch (err) {
+// // //       setError(
+// // //         "We couldn't confirm your submission. Please try again or contact us on WhatsApp."
+// // //       );
+// // //     } finally {
+// // //       setLoading(false);
+// // //     }
+// // //   };
+
+// // //   const whatsappLink =
+// // //     "https://wa.me/254704494504?text=" +
+// // //     encodeURIComponent(
+// // //       "Hi Tech Talk Hub, I would like to book a free trial coding class."
+// // //     );
+
+// // //   return (
+// // //     <main className="booking-page">
+// // //       <div className="booking-container">
+
+// // //         {/* BRAND */}
+// // //         <header className="brand">
+// // //           <div className="brand-icon">
+// // //             <Code2 size={48} strokeWidth={3} />
+// // //           </div>
+
+// // //           <div>
+// // //             <h1>Tech Talk Hub</h1>
+// // //             <p>Code · Create · Build · Grow</p>
+// // //           </div>
+// // //         </header>
+
+// // //         {/* PROGRESS */}
+// // //         <div className="progress">
+// // //           <div
+// // //             className={`progress-step ${
+// // //               step === 1 ? "active" : "completed"
+// // //             }`}
+// // //           >
+// // //             <span className="progress-circle">
+// // //               {step === 1 ? "1" : <Check size={19} />}
+// // //             </span>
+// // //             <span>Choose Grade</span>
+// // //           </div>
+
+// // //           <div className="progress-line">
+// // //             <div className={step === 2 ? "line-filled" : ""}></div>
+// // //           </div>
+
+// // //           <div
+// // //             className={`progress-step ${
+// // //               step === 2 ? "active" : ""
+// // //             }`}
+// // //           >
+// // //             <span className="progress-circle">2</span>
+// // //             <span>Enter Details</span>
+// // //           </div>
+// // //         </div>
+
+// // //         {!submitted ? (
+// // //           <>
+// // //             {step === 1 ? (
+
+// // //               /* STEP 1: GRADE SELECTION */
+
+// // //               <section className="step-content">
+// // //                 <div className="intro">
+// // //                   <h2>
+// // //                     Give Your Child a<br />
+// // //                     Confident Start in <span>Coding</span>
+// // //                   </h2>
+
+// // //                   <p>
+// // //                     Choose your child's grade level to get started
+// // //                     <br className="desktop-break" />
+// // //                     with a free trial class.
+// // //                   </p>
+// // //                 </div>
+
+// // //                 {/* GRADE CARDS */}
+// // //                 <div className="grade-grid">
+// // //                   {grades.map((grade) => (
+// // //                     <button
+// // //                       type="button"
+// // //                       key={grade.id}
+// // //                       className={`grade-card ${grade.color}`}
+// // //                       onClick={() => chooseGrade(grade.id)}
+// // //                     >
+// // //                       <span className="grade-emoji">
+// // //                         {grade.emoji}
+// // //                       </span>
+
+// // //                       <span className="grade-title">
+// // //                         {grade.id}
+// // //                       </span>
+
+// // //                       <ChevronRight
+// // //                         className="grade-arrow"
+// // //                         size={23}
+// // //                       />
+
+// // //                       <span className="grade-description">
+// // //                         {grade.description}
+// // //                       </span>
+// // //                     </button>
+// // //                   ))}
+// // //                 </div>
+
+// // //                 {/* HELP ME CHOOSE */}
+// // //                 <div className="grade-help">
+// // //                   <p>
+// // //                     Not sure which level is right for your child?
+// // //                   </p>
+
+// // //                   <button
+// // //                     type="button"
+// // //                     className="help-toggle"
+// // //                     onClick={() => setShowHelp(!showHelp)}
+// // //                   >
+// // //                     {showHelp ? "Close" : "Help me choose"}
+// // //                   </button>
+
+// // //                   {showHelp && (
+// // //                     <div className="help-panel">
+// // //                       <label htmlFor="helpAge">
+// // //                         How old is your child?
+// // //                       </label>
+
+// // //                       <select
+// // //                         id="helpAge"
+// // //                         value={helpAge}
+// // //                         onChange={(e) => setHelpAge(e.target.value)}
+// // //                       >
+// // //                         <option value="">
+// // //                           Select child's age
+// // //                         </option>
+
+// // //                         {Array.from(
+// // //                           { length: 14 },
+// // //                           (_, i) => i + 5
+// // //                         ).map((age) => (
+// // //                           <option key={age} value={age}>
+// // //                             {age} years
+// // //                           </option>
+// // //                         ))}
+// // //                       </select>
+
+// // //                       {helpAge && (
+// // //                         <div className="recommendation">
+// // //                           <p>
+// // //                             Based on your child's age, we recommend:
+// // //                           </p>
+
+// // //                           <strong>{recommendedGrade}</strong>
+
+// // //                           <small>
+// // //                             This is a starting recommendation.
+// // //                             Our team can confirm the appropriate
+// // //                             learning level during the free trial.
+// // //                           </small>
+
+// // //                           <button
+// // //                             type="button"
+// // //                             className="recommendation-button"
+// // //                             onClick={() =>
+// // //                               chooseGrade(recommendedGrade)
+// // //                             }
+// // //                           >
+// // //                             Continue with this level
+// // //                             <ArrowRight size={17} />
+// // //                           </button>
+// // //                         </div>
+// // //                       )}
+// // //                     </div>
+// // //                   )}
+
+// // //                   <a
+// // //                     className="help-whatsapp"
+// // //                     href={whatsappLink}
+// // //                     target="_blank"
+// // //                     rel="noreferrer"
+// // //                   >
+// // //                     <MessageCircle size={16} />
+// // //                     Need assistance? Chat with us
+// // //                   </a>
+// // //                 </div>
+// // //               </section>
+
+// // //             ) : (
+
+// // //               /* STEP 2: BOOKING DETAILS */
+
+// // //               <section className="step-content details-content">
+// // //                 <div className="intro">
+// // //                   <h2>Great! Let's Get Started</h2>
+
+// // //                   <p>
+// // //                     Fill in the form below to book your child's free trial class
+// // //                     <br className="desktop-break" />
+// // //                     for <span>{selectedGrade}</span>.
+// // //                   </p>
+// // //                 </div>
+
+// // //                 <form
+// // //                   className="booking-form"
+// // //                   onSubmit={handleSubmit}
+// // //                 >
+// // //                   <div className="selected-grade">
+// // //                     <GraduationCap size={43} />
+
+// // //                     <div>
+// // //                       <small>Selected Grade</small>
+// // //                       <strong>{selectedGrade}</strong>
+// // //                     </div>
+
+// // //                     <button
+// // //                       type="button"
+// // //                       className="edit-button"
+// // //                       onClick={() => setStep(1)}
+// // //                     >
+// // //                       Edit
+// // //                     </button>
+// // //                   </div>
+
+// // //                   <div className="form-fields">
+// // //                     <label htmlFor="parentName">
+// // //                       Parent's Full Name <b>*</b>
+// // //                     </label>
+
+// // //                     <div className="input-wrap">
+// // //                       <User />
+// // //                       <input
+// // //                         id="parentName"
+// // //                         name="parentName"
+// // //                         value={form.parentName}
+// // //                         onChange={updateForm}
+// // //                         placeholder="Enter your name"
+// // //                         autoComplete="name"
+// // //                         required
+// // //                       />
+// // //                     </div>
+
+// // //                     <label htmlFor="phone">
+// // //                       Phone Number <b>*</b>
+// // //                     </label>
+
+// // //                     <div className="input-wrap">
+// // //                       <Phone />
+// // //                       <input
+// // //                         id="phone"
+// // //                         name="phone"
+// // //                         type="tel"
+// // //                         value={form.phone}
+// // //                         onChange={updateForm}
+// // //                         placeholder="Enter your phone number"
+// // //                         autoComplete="tel"
+// // //                         required
+// // //                       />
+// // //                     </div>
+
+// // //                     <label htmlFor="studentName">
+// // //                       Child's Name <b>*</b>
+// // //                     </label>
+
+// // //                     <div className="input-wrap">
+// // //                       <User />
+// // //                       <input
+// // //                         id="studentName"
+// // //                         name="studentName"
+// // //                         value={form.studentName}
+// // //                         onChange={updateForm}
+// // //                         placeholder="Enter your child's name"
+// // //                         required
+// // //                       />
+// // //                     </div>
+
+// // //                     <label htmlFor="age">
+// // //                       Child's Age <b>*</b>
+// // //                     </label>
+
+// // //                     <div className="input-wrap">
+// // //                       <CalendarDays />
+// // //                       <select
+// // //                         id="age"
+// // //                         name="age"
+// // //                         value={form.age}
+// // //                         onChange={updateForm}
+// // //                         required
+// // //                       >
+// // //                         <option value="">Select age</option>
+
+// // //                         {Array.from(
+// // //                           { length: 14 },
+// // //                           (_, i) => i + 5
+// // //                         ).map((age) => (
+// // //                           <option key={age} value={age}>
+// // //                             {age} years
+// // //                           </option>
+// // //                         ))}
+// // //                       </select>
+// // //                     </div>
+
+// // //                     <label htmlFor="classTime">
+// // //                       Preferred Class Time <b>*</b>
+// // //                     </label>
+
+// // //                     <div className="input-wrap">
+// // //                       <Clock />
+
+// // //                       <select
+// // //                         id="classTime"
+// // //                         name="classTime"
+// // //                         value={form.classTime}
+// // //                         onChange={updateForm}
+// // //                         required
+// // //                       >
+// // //                         <option value="">Select a time</option>
+// // //                         <option value="Weekday Morning">
+// // //                           Weekday Morning
+// // //                         </option>
+// // //                         <option value="Weekday Afternoon">
+// // //                           Weekday Afternoon
+// // //                         </option>
+// // //                         <option value="Weekday Evening">
+// // //                           Weekday Evening
+// // //                         </option>
+// // //                         <option value="Saturday">
+// // //                           Saturday
+// // //                         </option>
+// // //                         <option value="Sunday">
+// // //                           Sunday
+// // //                         </option>
+// // //                         <option value="Flexible">
+// // //                           Flexible
+// // //                         </option>
+// // //                       </select>
+// // //                     </div>
+// // //                   </div>
+
+// // //                   {error && (
+// // //                     <p className="error-message" role="alert">
+// // //                       {error}
+// // //                     </p>
+// // //                   )}
+
+// // //                   <button
+// // //                     type="submit"
+// // //                     className="submit-button"
+// // //                     disabled={loading}
+// // //                   >
+// // //                     {loading
+// // //                       ? "Submitting..."
+// // //                       : "Book Free Trial Class"}
+
+// // //                     {!loading && <ArrowRight size={20} />}
+// // //                   </button>
+
+// // //                   <div className="or-divider">
+// // //                     <span></span> OR <span></span>
+// // //                   </div>
+
+// // //                   <a
+// // //                     className="whatsapp-button"
+// // //                     href={whatsappLink}
+// // //                     target="_blank"
+// // //                     rel="noreferrer"
+// // //                   >
+// // //                     <MessageCircle size={25} />
+
+// // //                     <div>
+// // //                       <strong>Chat with Us on WhatsApp</strong>
+// // //                       <small>
+// // //                         Have questions? We're here to help!
+// // //                       </small>
+// // //                     </div>
+// // //                   </a>
+
+// // //                   <div className="privacy-note">
+// // //                     <Lock size={15} />
+
+// // //                     <span>
+// // //                       Your information is used for class booking
+// // //                       and communication.
+// // //                     </span>
+// // //                   </div>
+// // //                 </form>
+// // //               </section>
+// // //             )}
+// // //           </>
+// // //         ) : (
+
+// // //           /* SUCCESS MESSAGE */
+
+// // //           <section className="success-content">
+// // //             <div className="success-icon">
+// // //               <Check size={40} />
+// // //             </div>
+
+// // //             <h2>Booking Received!</h2>
+
+// // //             <p>
+// // //               Thank you, {form.parentName}. We've received your request
+// // //               for {form.studentName}'s free trial coding class.
+// // //             </p>
+
+// // //             <p>
+// // //               Our team will contact you shortly to confirm the class.
+// // //             </p>
+
+// // //             <a
+// // //               href={whatsappLink}
+// // //               className="submit-button"
+// // //               target="_blank"
+// // //               rel="noreferrer"
+// // //             >
+// // //               Chat with Us on WhatsApp
+// // //             </a>
+// // //           </section>
+// // //         )}
+
+// // //         {/* TRUST FEATURES */}
+
+// // //         <div className="trust-features">
+// // //           <div>
+// // //             <Laptop />
+// // //             <span>
+// // //               Live Online<br />Classes
+// // //             </span>
+// // //           </div>
+
+// // //           <div>
+// // //             <ShieldCheck />
+// // //             <span>
+// // //               Experienced<br />Tutors
+// // //             </span>
+// // //           </div>
+
+// // //           <div>
+// // //             <Star />
+// // //             <span>
+// // //               Project-Based<br />Learning
+// // //             </span>
+// // //           </div>
+
+// // //           <div>
+// // //             <Users />
+// // //             <span>
+// // //               Small<br />Class Sizes
+// // //             </span>
+// // //           </div>
+// // //         </div>
+
+// // //         <footer>
+// // //           Tech Talk Hub <span>|</span> Learn Today. Build Tomorrow.
+// // //         </footer>
+// // //       </div>
+// // //     </main>
+// // //   );
+// // // }
+
+// // // export default App;
