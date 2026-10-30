@@ -461,7 +461,7 @@ function App() {
                     </div>
 
                     <label htmlFor="studentName">
-                      Child's Name <b>*</b>
+                      Student's Name <b>*</b>
                     </label>
 
                     <div className="input-wrap">
