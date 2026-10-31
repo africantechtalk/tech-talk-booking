@@ -904,3 +904,17 @@ select:focus-visible {
     animation-duration: 0.01ms !important;
   }
 }
+
+.input-wrap input[type="date"] {
+  display: block;
+  min-width: 0;
+  min-height: 46px;
+  appearance: auto;
+  -webkit-appearance: auto;
+}
+
+.input-wrap input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 1;
+  display: block;
+  cursor: pointer;
+}
