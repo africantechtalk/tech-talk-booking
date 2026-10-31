@@ -243,89 +243,99 @@ function App() {
     return count < MAX_BOOKINGS_PER_SLOT;
   });
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError("");
 
-    if (!SCRIPT_URL) {
-      setError(
-        "Booking service is not configured. Please contact us on WhatsApp."
-      );
-      return;
-    }
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  setError("");
 
-    if (!selectedGrade) {
-      setError("Please select your child's grade.");
-      setStep(1);
-      return;
-    }
+  if (!SCRIPT_URL) {
+    setError(
+      "Booking service is not configured. Please contact us on WhatsApp."
+    );
+    return;
+  }
 
-    if (!form.classDate || !form.classTime) {
-      setError("Please select a class date and available time.");
-      return;
-    }
+  if (!selectedGrade) {
+    setError("Please select your child's grade.");
+    setStep(1);
+    return;
+  }
 
-    const selectedSlotCount = Number(
-      bookingCounts[`${form.classDate}|${form.classTime}`] || 0
+  if (!form.classDate || !form.classTime) {
+    setError("Please select a class date and available time.");
+    return;
+  }
+
+  const selectedSlotCount = Number(
+    bookingCounts[`${form.classDate}|${form.classTime}`] || 0
+  );
+
+  if (selectedSlotCount >= MAX_BOOKINGS_PER_SLOT) {
+    setForm((previous) => ({
+      ...previous,
+      classTime: "",
+    }));
+
+    setError(
+      "Sorry, this time slot has just filled up. Please select another time."
     );
 
-    if (selectedSlotCount >= MAX_BOOKINGS_PER_SLOT) {
-      setForm((previous) => ({
-        ...previous,
-        classTime: "",
-      }));
+    retryAvailability();
+    return;
+  }
 
-      setError(
-        "Sorry, this time slot has just filled up. Please select another time."
-      );
-      return;
-    }
+  setLoading(true);
 
-    setLoading(true);
+  try {
+    const payload = {
+      parentName: form.parentName.trim(),
+      phone: form.phone.trim(),
+      studentName: form.studentName.trim(),
+      grade: selectedGrade,
+      classDate: form.classDate,
+      classTime: form.classTime,
+    };
+
+    const response = await fetch("/api/bookings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    let result;
 
     try {
-      const payload = {
-        parentName: form.parentName.trim(),
-        phone: form.phone.trim(),
-        studentName: form.studentName.trim(),
-        grade: selectedGrade,
-        classDate: form.classDate,
-        classTime: form.classTime,
-      };
-
-      const response = await fetch(SCRIPT_URL, {
-        method: "POST",
-        mode: "no-cors",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify(payload),
-      });
-
-      // A no-cors response is opaque. It cannot confirm that Apps Script
-      // accepted the booking or rejected it because the slot filled up.
-      if (response.type === "opaque") {
-        setSubmitted(true);
-      } else if (response.ok) {
-        const result = await response.json();
-
-        if (result.success) {
-          setSubmitted(true);
-        } else {
-          throw new Error(result.error || "Booking could not be saved.");
-        }
-      } else {
-        throw new Error("Unable to submit your booking.");
-      }
-    } catch (err) {
-      setError(
-        err.message ||
-        "We couldn't confirm your submission. Please try again or contact us on WhatsApp."
+      result = await response.json();
+    } catch {
+      throw new Error(
+        "We received an invalid response from the booking service. Please try again."
       );
-    } finally {
-      setLoading(false);
     }
-  };
+
+    if (!response.ok || result.success !== true) {
+      throw new Error(
+        result.error || "Your booking could not be confirmed."
+      );
+    }
+
+    // Only show the confirmation screen after the API
+    // confirms that Google Apps Script saved the booking.
+    setSubmitted(true);
+
+  } catch (err) {
+    console.error("Booking submission failed:", err);
+
+    setError(
+      err.message ||
+      "We couldn't confirm your submission. Please try again or contact us on WhatsApp."
+    );
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   const whatsappLink =
     `https://wa.me/${WHATSAPP_NUMBER}?text=` +
